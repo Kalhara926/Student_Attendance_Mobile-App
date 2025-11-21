@@ -182,7 +182,7 @@ class _HomeScreenState extends State<HomeScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Image.asset(
-              'assets/images/lecture_hall.jpg',
+              'assets/images/assets/images/Auditorium_cam01-02-1440x960.webp',
               height: 150,
               width: double.infinity,
               fit: BoxFit.cover,
