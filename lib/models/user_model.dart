@@ -12,6 +12,9 @@ class UserModel {
   final String profilePicUrl;
   final String degree;
   final String yearSem;
+  // --- වෙනස්කම් 1: phone සහ dob fields ලෙස එකතු කිරීම ---
+  final String phone;
+  final String dob;
 
   UserModel({
     required this.uid,
@@ -21,11 +24,11 @@ class UserModel {
     required this.profilePicUrl,
     required this.degree,
     required this.yearSem,
-    required String phone,
-    required String dob,
+    // --- වෙනස්කම් 2: Constructor එකට මේවා required ලෙස එකතු කිරීම ---
+    required this.phone,
+    required this.dob,
   });
 
-  // --- දෝෂය නිරාකරණය කරන fromFirestore constructor එක ---
   factory UserModel.fromFirestore(DocumentSnapshot doc) {
     Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
     return UserModel(
@@ -36,25 +39,28 @@ class UserModel {
       profilePicUrl: data['profilePicUrl'] ?? '',
       degree: data['degree'] ?? 'N/A',
       yearSem: data['yearSem'] ?? 'N/A',
-      phone: '',
-      dob: '',
+      // --- වෙනස්කම් 3: Firestore එකෙන් phone සහ dob කියවීම ---
+      // Firestore එකේ මේ fields නැත්නම්, default අගයක් දෙනවා.
+      phone: data['phone'] ?? 'Not Provided',
+      dob: data['dob'] ?? 'Not Provided',
     );
   }
 
-  get phone => null;
+  // --- වෙනස්කම් 4: වැරදි getters දෙක ඉවත් කිරීම ---
+  // get phone => null; <--- ඉවත් කළා
+  // get dob => null; <--- ඉවත් කළා
 
-  get dob => null;
-
-  // Auth User object එකකින් Firestore document එකක් සඳහා Map එකක් සාදන function එක
-  Map<String, dynamic> toMap(auth.User user) {
+  Map<String, dynamic> toMap() {
     return {
-      'uid': user.uid,
-      'name': name, // 'name' is passed to constructor during registration
-      'email': user.email,
-      'studentId': studentId, // 'studentId' is passed to constructor
-      'profilePicUrl': '', // Initially empty
+      'uid': uid,
+      'name': name,
+      'email': email,
+      'studentId': studentId,
+      'profilePicUrl': profilePicUrl,
       'degree': degree,
       'yearSem': yearSem,
+      'phone': phone, // toMap එකටත් එකතු කළා
+      'dob': dob, // toMap එකටත් එකතු කළා
     };
   }
 }

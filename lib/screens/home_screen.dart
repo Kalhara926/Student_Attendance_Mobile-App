@@ -1,5 +1,3 @@
-// lib/screens/home_screen.dart
-
 import 'package:flutter/material.dart';
 import 'package:student_attendance_app/models/timetable_model.dart';
 import 'package:student_attendance_app/models/user_model.dart';
@@ -9,8 +7,9 @@ import 'package:student_attendance_app/services/database_service.dart';
 import 'package:student_attendance_app/screens/timetable_screen.dart';
 
 // --- අලුතින් import කළ screens ---
-import 'package:student_attendance_app/screens/attendance_history_screen.dart';
-import 'package:student_attendance_app/screens/settings_screen.dart';
+import 'attendance_history_screen.dart';
+
+import 'package:student_attendance_app/screens/profile_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -42,6 +41,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final user = _authService.getCurrentUser();
     if (user != null) {
       try {
+        // Get user data and live lecture data at the same time
         final results = await Future.wait([
           _dbService.getUserFromDb(user.uid),
           _dbService.getCurrentLiveLecture(user.uid),
@@ -78,33 +78,56 @@ class _HomeScreenState extends State<HomeScreen> {
       body: SafeArea(
         child: RefreshIndicator(
           onRefresh: _loadAllData,
-          child: SingleChildScrollView(
-            physics: const AlwaysScrollableScrollPhysics(),
-            padding: const EdgeInsets.all(16.0),
-            child: _isLoading
-                ? _buildLoadingState()
-                : Column(
+          child: _isLoading
+              ? _buildLoadingState()
+              : _userModel == null
+              ? _buildErrorState()
+              : SingleChildScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       _buildHeader(),
                       const SizedBox(height: 24),
                       _buildLiveLectureCard(),
                       const SizedBox(height: 24),
-                      _buildMenuGrid(), // <-- වෙනස්කම් ඇතුළත් function එක
+                      _buildMenuGrid(),
                     ],
                   ),
-          ),
+                ),
         ),
       ),
     );
   }
 
   Widget _buildLoadingState() {
-    return const Center(heightFactor: 5, child: CircularProgressIndicator());
+    return const Center(child: CircularProgressIndicator());
+  }
+
+  Widget _buildErrorState() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(20.0),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Text(
+              "Could not load user data. Please check your connection and try again.",
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 16),
+            ),
+            const SizedBox(height: 20),
+            ElevatedButton(onPressed: _loadAllData, child: const Text("Retry")),
+          ],
+        ),
+      ),
+    );
   }
 
   Widget _buildHeader() {
     String firstName = _userModel?.name.split(' ').first ?? 'User';
+    if (firstName.isEmpty) firstName = 'User';
 
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -118,23 +141,31 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             const SizedBox(height: 4),
             const Text(
-              'Welcome to your dashboard',
+              'Welcome to Your Portal',
               style: TextStyle(color: Colors.grey, fontSize: 16),
             ),
           ],
         ),
-        CircleAvatar(
-          radius: 24,
-          backgroundImage:
-              _userModel?.profilePicUrl != null &&
-                  _userModel!.profilePicUrl.isNotEmpty
-              ? NetworkImage(_userModel!.profilePicUrl)
-              : null,
-          child:
-              _userModel?.profilePicUrl == null ||
-                  _userModel!.profilePicUrl.isEmpty
-              ? const Icon(Icons.person, size: 28)
-              : null,
+        GestureDetector(
+          onTap: () {
+            Navigator.of(
+              context,
+            ).push(MaterialPageRoute(builder: (_) => const ProfileScreen()));
+          },
+          child: CircleAvatar(
+            radius: 28,
+            backgroundColor: Colors.blue.shade100,
+            backgroundImage:
+                _userModel?.profilePicUrl != null &&
+                    _userModel!.profilePicUrl.isNotEmpty
+                ? NetworkImage(_userModel!.profilePicUrl)
+                : null,
+            child:
+                _userModel?.profilePicUrl == null ||
+                    _userModel!.profilePicUrl.isEmpty
+                ? Icon(Icons.person, size: 32, color: Colors.blue.shade700)
+                : null,
+          ),
         ),
       ],
     );
@@ -166,11 +197,7 @@ class _HomeScreenState extends State<HomeScreen> {
     return InkWell(
       onTap: () {
         Navigator.of(context).push(
-          MaterialPageRoute(
-            // AttendanceDetailScreen එකට තවදුරටත් lecture object එකක් pass කිරීම අවශ්‍ය නැත.
-            // එය තමන්ට අවශ්‍ය දත්ත load කරගනී.
-            builder: (_) => const AttendanceDetailScreen(),
-          ),
+          MaterialPageRoute(builder: (_) => const AttendanceDetailScreen()),
         );
       },
       borderRadius: BorderRadius.circular(15),
@@ -181,18 +208,42 @@ class _HomeScreenState extends State<HomeScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Image.asset(
-              'assets/images/assets/images/Auditorium_cam01-02-1440x960.webp',
+            // ===================================================================
+            // ==== වැරදි URL එක වෙනුවට, test කිරීම සඳහා ක්‍රියාත්මක වන URL එකක් යෙදුවා ====
+            // ===================================================================
+            Image.network(
+              'https://picsum.photos/seed/lecture/600/300', // <-- ක්‍රියාත්මක වන URL එකක්
               height: 150,
               width: double.infinity,
               fit: BoxFit.cover,
+              loadingBuilder:
+                  (
+                    BuildContext context,
+                    Widget child,
+                    ImageChunkEvent? loadingProgress,
+                  ) {
+                    if (loadingProgress == null) return child;
+                    return Container(
+                      height: 150,
+                      color: Colors.grey[300],
+                      child: Center(
+                        child: CircularProgressIndicator(
+                          value: loadingProgress.expectedTotalBytes != null
+                              ? loadingProgress.cumulativeBytesLoaded /
+                                    loadingProgress.expectedTotalBytes!
+                              : null,
+                        ),
+                      ),
+                    );
+                  },
               errorBuilder: (context, error, stackTrace) {
+                print("Image load error: $error"); // Error එක print කරලා බලන්න
                 return Container(
                   height: 150,
                   color: Colors.grey[300],
                   child: const Center(
                     child: Icon(
-                      Icons.broken_image,
+                      Icons.broken_image_outlined,
                       color: Colors.grey,
                       size: 40,
                     ),
@@ -200,6 +251,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 );
               },
             ),
+            // ===================================================================
             Padding(
               padding: const EdgeInsets.all(16.0),
               child: Column(
@@ -221,28 +273,28 @@ class _HomeScreenState extends State<HomeScreen> {
                   Text("${_liveLecture!.time} | ${_liveLecture!.room}"),
                   const SizedBox(height: 12),
                   Row(
-                    children: const [
-                      Text(
-                        "PRESENT", // This needs to be dynamic based on actual status
+                    children: [
+                      const Text(
+                        "PRESENT", // This should be dynamic
                         style: TextStyle(
                           color: Colors.green,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
-                      Spacer(),
+                      const Spacer(),
                       Text(
-                        "45 mins remaining", // This needs to be calculated
-                        style: TextStyle(color: Colors.grey),
+                        _calculateRemainingTime(),
+                        style: const TextStyle(color: Colors.grey),
                       ),
                     ],
                   ),
                   const SizedBox(height: 8),
                   ClipRRect(
                     borderRadius: BorderRadius.circular(10),
-                    child: const LinearProgressIndicator(
-                      value: 0.5, // This needs to be calculated
+                    child: LinearProgressIndicator(
+                      value: _calculateProgress(),
                       minHeight: 6,
-                      backgroundColor: Color(0xFFE0E0E0),
+                      backgroundColor: const Color(0xFFE0E0E0),
                       color: Colors.blue,
                     ),
                   ),
@@ -255,7 +307,34 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // --- යාවත්කාලීන කළ Menu Grid Widget එක ---
+  double _calculateProgress() {
+    if (_liveLecture == null) return 0.0;
+    final now = DateTime.now();
+    final totalDuration = _liveLecture!.endTime.difference(
+      _liveLecture!.startTime,
+    );
+    final elapsedDuration = now.difference(_liveLecture!.startTime);
+
+    if (totalDuration.inMilliseconds <= 0) return 1.0;
+    double progress =
+        elapsedDuration.inMilliseconds / totalDuration.inMilliseconds;
+    return progress.clamp(0.0, 1.0);
+  }
+
+  String _calculateRemainingTime() {
+    if (_liveLecture == null) return "";
+    final now = DateTime.now();
+    final remaining = _liveLecture!.endTime.difference(now);
+
+    if (remaining.isNegative) {
+      return "Finished";
+    }
+    if (remaining.inHours > 0) {
+      return "${remaining.inHours}h ${remaining.inMinutes.remainder(60)}m remaining";
+    }
+    return "${remaining.inMinutes}m remaining";
+  }
+
   Widget _buildMenuGrid() {
     return GridView.count(
       crossAxisCount: 2,
@@ -270,7 +349,6 @@ class _HomeScreenState extends State<HomeScreen> {
           title: "Attendance History",
           subtitle: "View past records",
           onTap: () {
-            // Student ID එකක් තිබේදැයි පරීක්ෂා කරනවා
             if (_userModel?.studentId != null) {
               Navigator.of(context).push(
                 MaterialPageRoute(
@@ -302,18 +380,19 @@ class _HomeScreenState extends State<HomeScreen> {
           title: "Academic Grades",
           subtitle: "Check your results",
           onTap: () {
-            // TODO: Navigate to Grades Screen
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text("Grades feature coming soon!")),
+            );
           },
         ),
         _buildMenuCard(
-          icon: Icons.settings_outlined,
-          title: "Settings & Help",
-          subtitle: "App preferences",
+          icon: Icons.person_outline,
+          title: "My Profile",
+          subtitle: "Settings & Info",
           onTap: () {
-            // Settings Screen එකට navigate කරනවා
             Navigator.of(
               context,
-            ).push(MaterialPageRoute(builder: (_) => const SettingsScreen()));
+            ).push(MaterialPageRoute(builder: (_) => const ProfileScreen()));
           },
         ),
       ],
