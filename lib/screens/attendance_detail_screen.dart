@@ -1,5 +1,3 @@
-// lib/screens/attendance_detail_screen.dart
-
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -18,23 +16,24 @@ class AttendanceDetailScreen extends StatefulWidget {
 }
 
 class _AttendanceDetailScreenState extends State<AttendanceDetailScreen> {
-  // UI State Variables
-  bool isLocationVerified = false;
+  // --- UI State Variables ---
+  bool isLocationVerified = false; // UI එකේ තත්ත්වය පාලනය කරයි
   bool isFingerprintVerified = false;
   bool isFaceVerified = false;
   String fingerprintTime = "";
 
-  // Data Loading State
+  // --- Data Loading and Submission State ---
   bool _isLoading = true;
   String _errorMessage = "";
+  bool _isConfirming = false; // "Confirm Attendance" button එකට loading state
+
+  // --- User and Lecture Data ---
   String? _studentId;
   String _studentName = "Student";
-
-  // Lecture Data
   Lecture? _liveLecture;
   bool _isFetchingLecture = true;
 
-  // Firebase Subscriptions
+  // --- Firebase Subscriptions ---
   StreamSubscription<DatabaseEvent>? _attendanceSubscription;
   StreamSubscription<DatabaseEvent>? _faceSubscription;
 
@@ -44,6 +43,14 @@ class _AttendanceDetailScreenState extends State<AttendanceDetailScreen> {
     _loadStudentDataAndSetupListeners();
   }
 
+  @override
+  void dispose() {
+    _attendanceSubscription?.cancel();
+    _faceSubscription?.cancel();
+    super.dispose();
+  }
+
+  // --- Data Fetching and Listener Setup ---
   Future<void> _loadStudentDataAndSetupListeners() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
@@ -54,98 +61,94 @@ class _AttendanceDetailScreenState extends State<AttendanceDetailScreen> {
       });
       return;
     }
+
     try {
       final docRef = FirebaseFirestore.instance
           .collection('users')
           .doc(user.uid);
       final docSnapshot = await docRef.get();
-      if (docSnapshot.exists) {
+
+      if (docSnapshot.exists && mounted) {
         final userData = docSnapshot.data()!;
         if (userData['studentId'] != null) {
-          if (!mounted) return;
           setState(() {
             _studentId = userData['studentId'];
             _studentName = userData['name'] ?? "Student";
             _isLoading = false;
           });
-          _listenToAttendance();
+          // Setup listeners after student ID is confirmed
+          _listenToFingerprint();
           _listenToFaceDetection();
           _fetchLiveLecture();
         } else {
-          if (!mounted) return;
           setState(() {
             _isLoading = false;
-            _errorMessage = "Student ID not found.";
+            _errorMessage = "Student ID not found in your profile.";
           });
         }
       } else {
-        if (!mounted) return;
-        setState(() {
-          _isLoading = false;
-          _errorMessage = "User profile not found.";
-        });
+        if (mounted)
+          setState(() {
+            _isLoading = false;
+            _errorMessage = "User profile not found.";
+          });
       }
     } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _isLoading = false;
-        _errorMessage = "Error: ${e.toString()}";
-      });
+      if (mounted)
+        setState(() {
+          _isLoading = false;
+          _errorMessage = "Error loading data: ${e.toString()}";
+        });
     }
   }
 
   Future<void> _fetchLiveLecture() async {
-    setState(() {
-      _isFetchingLecture = true;
-    });
+    setState(() => _isFetchingLecture = true);
     try {
       final querySnapshot = await FirebaseFirestore.instance
           .collection('lectures')
           .where('status', isEqualTo: 'live')
           .limit(1)
           .get();
-      Lecture? foundLecture;
-      if (querySnapshot.docs.isNotEmpty) {
-        foundLecture = Lecture.fromFirestore(querySnapshot.docs.first);
+
+      if (mounted) {
+        setState(() {
+          if (querySnapshot.docs.isNotEmpty) {
+            _liveLecture = Lecture.fromFirestore(querySnapshot.docs.first);
+          }
+          _isFetchingLecture = false;
+        });
       }
-      if (!mounted) return;
-      setState(() {
-        _liveLecture = foundLecture;
-        _isFetchingLecture = false;
-      });
     } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _isFetchingLecture = false;
-      });
-      print("Error fetching lecture: $e");
+      if (mounted) setState(() => _isFetchingLecture = false);
+      print("Error fetching live lecture: $e");
     }
   }
 
-  void _listenToAttendance() {
+  void _listenToFingerprint() {
     if (_studentId == null) return;
     final attendanceRef = FirebaseDatabase.instance.ref(
       'attendance/$_studentId',
     );
     _attendanceSubscription = attendanceRef.onValue.listen((event) {
       if (!mounted) return;
-      bool fpVerified = false, locVerified = false;
+      bool fpVerified = false;
       String fpTime = "";
       if (event.snapshot.exists && event.snapshot.value != null) {
         final data = Map<String, dynamic>.from(event.snapshot.value as Map);
         if (data['present'] == true && data['source'] == 'fingerprint') {
           fpVerified = true;
-          fpTime =
-              "Verified at ${TimeOfDay.fromDateTime(DateTime.parse(data['timestamp'])).format(context)}";
-        }
-        if (data['location_verified'] == true) {
-          locVerified = true;
+          try {
+            fpTime =
+                "Verified at ${TimeOfDay.fromDateTime(DateTime.parse(data['timestamp'])).format(context)}";
+          } catch (_) {
+            fpTime = "Verified";
+          }
         }
       }
       setState(() {
         isFingerprintVerified = fpVerified;
         fingerprintTime = fpTime;
-        isLocationVerified = locVerified;
       });
     });
   }
@@ -162,65 +165,94 @@ class _AttendanceDetailScreenState extends State<AttendanceDetailScreen> {
           faceVerified = true;
         }
       }
-      setState(() {
-        isFaceVerified = faceVerified;
-      });
+      setState(() => isFaceVerified = faceVerified);
     });
+  }
+
+  // --- Navigation and Data Submission ---
+  void _navigateToLiveTracking() async {
+    if (_studentId == null) return;
+
+    final result = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (context) => LiveTrackingScreen(studentId: _studentId),
+      ),
+    );
+
+    if (result == true && mounted) {
+      setState(() {
+        isLocationVerified = true;
+      });
+    }
   }
 
   Future<void> _confirmFinalAttendance() async {
     if (_studentId == null || _liveLecture == null) return;
-    final attendanceRecordRef = FirebaseFirestore.instance
-        .collection('student_attendance')
-        .doc(_studentId)
-        .collection('lectures')
-        .doc(_liveLecture!.id);
+    setState(() => _isConfirming = true);
+
     try {
-      await attendanceRecordRef.set({
+      final WriteBatch batch = FirebaseFirestore.instance.batch();
+
+      // 1. Create Attendance Record
+      final attendanceRecordRef = FirebaseFirestore.instance
+          .collection('student_attendance')
+          .doc(_studentId)
+          .collection('lectures')
+          .doc(_liveLecture!.id);
+
+      batch.set(attendanceRecordRef, {
         'studentId': _studentId,
         'lectureId': _liveLecture!.id,
         'subjectName': _liveLecture!.subjectName,
         'status': 'Present',
-        'confirmedAt': Timestamp.now(),
+        'confirmedAt': FieldValue.serverTimestamp(),
         'verificationMethods': {
           'location': isLocationVerified,
           'fingerprint': isFingerprintVerified,
           'face': isFaceVerified,
         },
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("Attendance Confirmed Successfully!"),
-          backgroundColor: Colors.green,
-        ),
-      );
+
+      // 2. Create Location Log
+      final locationLogRef = FirebaseFirestore.instance
+          .collection('location_logs')
+          .doc(_studentId)
+          .collection('logs')
+          .doc(); // Auto-ID
+
+      batch.set(locationLogRef, {
+        'inside_geofence': isLocationVerified,
+        'subjectName': _liveLecture!.subjectName,
+        'roomNo': _liveLecture!.roomNo,
+        'loggedAt': FieldValue.serverTimestamp(),
+      });
+
+      await batch.commit();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Attendance Confirmed & Logged!"),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text("Failed to confirm attendance: $e"),
-          backgroundColor: Colors.red,
-        ),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("Failed to confirm attendance: $e"),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isConfirming = false);
     }
   }
 
-  void _navigateToLiveTracking() async {
-    if (_studentId == null) return;
-    await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => LiveTrackingScreen(studentId: _studentId),
-      ),
-    );
-  }
-
-  @override
-  void dispose() {
-    _attendanceSubscription?.cancel();
-    _faceSubscription?.cancel();
-    super.dispose();
-  }
-
+  // --- Build Methods ---
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -247,6 +279,9 @@ class _AttendanceDetailScreenState extends State<AttendanceDetailScreen> {
   }
 
   Widget _buildMainContent() {
+    bool allVerified =
+        isLocationVerified && isFingerprintVerified && isFaceVerified;
+
     return SingleChildScrollView(
       child: Column(
         children: [
@@ -264,15 +299,12 @@ class _AttendanceDetailScreenState extends State<AttendanceDetailScreen> {
                 _isFetchingLecture
                     ? const Center(child: CircularProgressIndicator())
                     : _liveLecture != null
-                    ? _buildLiveClassCard(
-                        allVerified:
-                            isLocationVerified &&
-                            isFingerprintVerified &&
-                            isFaceVerified,
-                      )
+                    ? _buildLiveClassCard(allVerified: allVerified)
                     : const Card(
                         child: ListTile(
+                          leading: Icon(Icons.info_outline),
                           title: Text("No live class at the moment."),
+                          subtitle: Text("Please check back later or refresh."),
                         ),
                       ),
                 const SizedBox(height: 30),
@@ -308,7 +340,6 @@ class _AttendanceDetailScreenState extends State<AttendanceDetailScreen> {
                   isVerified: isFaceVerified,
                   isSpecial: true,
                 ),
-                // --- Attendance History Card එක මෙතැනින් ඉවත් කරන ලදී ---
               ],
             ),
           ),
@@ -316,10 +347,6 @@ class _AttendanceDetailScreenState extends State<AttendanceDetailScreen> {
       ),
     );
   }
-
-  // --- UI Widgets ---
-  // (_buildHeader, _buildLiveClassCard, _buildStatusCard widgets වල වෙනසක් නැත. ඒවා මෙහි නැවත යොදන්නේ නැත.)
-  // (ඔබගේ පැරණි කේතයෙන් එම widgets ඒ ආකාරයෙන්ම මෙහි තිබිය යුතුය.)
 
   Widget _buildHeader() {
     return Container(
@@ -456,8 +483,8 @@ class _AttendanceDetailScreenState extends State<AttendanceDetailScreen> {
                 ),
               ],
             ),
-            const SizedBox(height: 10),
-            if (isFingerprintVerified)
+            if (isFingerprintVerified) ...[
+              const SizedBox(height: 10),
               Row(
                 children: const [
                   Icon(Icons.fingerprint, size: 16, color: Colors.green),
@@ -467,9 +494,12 @@ class _AttendanceDetailScreenState extends State<AttendanceDetailScreen> {
                   ),
                 ],
               ),
+            ],
             const SizedBox(height: 20),
             ElevatedButton(
-              onPressed: allVerified ? _confirmFinalAttendance : null,
+              onPressed: allVerified && !_isConfirming
+                  ? _confirmFinalAttendance
+                  : null,
               style: ElevatedButton.styleFrom(
                 minimumSize: const Size(double.infinity, 50),
                 backgroundColor: Colors.deepPurple,
@@ -478,10 +508,12 @@ class _AttendanceDetailScreenState extends State<AttendanceDetailScreen> {
                 ),
                 disabledBackgroundColor: Colors.grey[300],
               ),
-              child: const Text(
-                "Confirm Attendance",
-                style: TextStyle(fontSize: 16),
-              ),
+              child: _isConfirming
+                  ? const CircularProgressIndicator(color: Colors.white)
+                  : const Text(
+                      "Confirm Attendance",
+                      style: TextStyle(fontSize: 16),
+                    ),
             ),
           ],
         ),
